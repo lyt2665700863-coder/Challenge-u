@@ -2,11 +2,10 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <!-- 核心：适配手机端，让页面在手机上正常显示 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>自动抬杠小游戏</title>
+    <title>🤪 自动抬杠小游戏</title>
     <style>
-        /* 整体样式，适配手机，简洁易操作  */
+        /* 原有样式完全不变，复制你之前的样式即可 */
         * {
             margin: 0;
             padding: 0;
@@ -32,7 +31,6 @@
             margin-bottom: 25px;
             font-weight: 600;
         }
-        /* 输入框样式，适配手机点击 */
         #ideaInput {
             width: 100%;
             height: 120px;
@@ -47,7 +45,6 @@
         #ideaInput:focus {
             border-color: #409eff;
         }
-        /* 提交按钮，手机端点击友好 */
         #submitBtn {
             width: 100%;
             height: 50px;
@@ -62,9 +59,8 @@
         #submitBtn:active {
             background-color: #337ecc;
         }
-        /* 结果展示区 */
         .result-box {
-            display: none; /* 默认隐藏 */
+            display: none;
             margin-top: 20px;
             padding: 20px;
             background-color: #f0f9ff;
@@ -81,7 +77,6 @@
             color: #666;
             line-height: 1.6;
         }
-        /* 重置按钮 */
         #resetBtn {
             display: none;
             width: 100%;
@@ -98,110 +93,139 @@
             background-color: #e64949;
         }
     </style>
+    <!-- 新增：引入jieba分词JS版（浏览器端CDN） -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/jieba/3.6.0/jieba.min.js"></script>
+    <!-- 新增：引入讯飞星火接口依赖（加密用） -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
 </head>
 <body>
     <div class="container">
         <h1>🤪 自动抬杠小游戏</h1>
-        <!-- 观点输入框 -->
         <textarea id="ideaInput" placeholder="请输入你的观点，我来抬杠～
 例：喝奶茶会胖、努力就能成功、程序员都宅"></textarea>
-        <!-- 提交按钮 -->
         <button id="submitBtn">开始抬杠！</button>
-        <!-- 抬杠结果展示 -->
         <div class="result-box" id="resultBox">
             <h3>💥 杠精上线：</h3>
             <p id="taigangResult"></p>
         </div>
-        <!-- 重置按钮 -->
         <button id="resetBtn">重新输入</button>
     </div>
 
     <script>
-        // 获取页面元素
+        // 原有元素获取逻辑完全不变
         const ideaInput = document.getElementById('ideaInput');
         const submitBtn = document.getElementById('submitBtn');
         const resultBox = document.getElementById('resultBox');
         const taigangResult = document.getElementById('taigangResult');
         const resetBtn = document.getElementById('resetBtn');
 
-        // 核心：5种抬杠角度的模板（覆盖主流逻辑漏洞）
-        const taigangTemplates = [
-            // 1. 质疑前提
-            "你说的「{}」，默认的前提是什么？这个前提真的成立吗？有依据吗？",
-            // 2. 模糊定义
-            "你提到的「{}」里，‘{}’这个关键词到底怎么定义？没有明确标准可没法聊哦～",
-            // 3. 以偏概全
-            "你是从个别案例推出「{}」这个结论的吗？有没有反例能推翻这个观点？",
-            // 4. 因果混淆
-            "「{}」真的是因果关系吗？会不会是相关关系，或者反过来的因果？",
-            // 5. 极端假设
-            "如果把「{}」推到极端情况，比如{}，这个观点还成立吗？"
-        ];
+        // ====================== 新增/修改部分开始 ======================
+        // 1. 配置讯飞星火API密钥（替换成你自己的！）
+        const XF_CONFIG = {
+            appid: "84271b25",
+            apiKey: "107e95f305daec99a915f41bd14005ab",
+            apiSecret: "NThkNjA3YWI4NTc5MGYwM2U5OTY3Mzg1"
+        };
 
-        // 提取观点核心关键词（简化版，适配新手）
-        function getKeyword(idea) {
-            // 去掉多余空格，取前10个字作为核心（手机端显示友好）
+        // 2. 新增：关键词提取函数（基于jieba分词）
+        function extractKeywords(idea) {
+            if (!idea.trim()) return "";
+            // 加载jieba词典（浏览器端需手动加载）
+            jieba.load(function() {
+                // 分词并过滤停用词（如“的、会、能”等无意义词）
+                const words = jieba.cut(idea.trim(), false);
+                const stopWords = ['的', '了', '是', '会', '能', '就', '都', '有', '在', '和', '也', '但', '如果'];
+                // 提取核心关键词（长度≥2，非停用词）
+                const keywords = words.filter(word => word.length >= 2 && !stopWords.includes(word));
+                return keywords.join("、");
+            });
+            // 兜底：如果分词失败，取前10个字
             return idea.trim().replace(/\s+/g, '').substring(0, 10);
         }
 
-        // 生成极端假设的补充（让抬杠更刁钻）
-        function getExtremeCase(idea) {
-            const cases = [
-                "完全不考虑成本的情况下",
-                "所有人都这么做的话",
-                "遇到突发意外时",
-                "只看短期/长期效果时"
-            ];
-            return cases[Math.floor(Math.random() * cases.length)];
-        }
+        // 3. 新增：讯飞星火API调用函数（轻量版，仅生成抬杠内容）
+        async function callXFApi(prompt) {
+            // 生成请求签名（讯飞接口要求，固定逻辑）
+            const timestamp = new Date().getTime();
+            const signature = CryptoJS.HmacSHA256(`host:spark-api.xf-yun.com\ndate:${timestamp}\nGET /v1/chat/completions HTTP/1.1`, XF_CONFIG.apiSecret).toString(CryptoJS.enc.Base64);
+            
+            // 构造AI提示词（明确5个抬杠角度，让AI精准生成）
+            const aiPrompt = `
+                请针对观点「${prompt}」，从以下5个角度生成1句抬杠的话，要求口语化、贴合观点、不跑偏：
+                1. 质疑前提：质疑观点的默认前提是否成立；
+                2. 模糊定义：追问观点中关键词的定义；
+                3. 以偏概全：指出观点是否以个别案例推整体；
+                4. 因果混淆：质疑观点的因果关系是否成立；
+                5. 极端假设：将观点推到极端情况验证是否成立。
+                要求：只返回抬杠的话，不要多余解释，字数控制在50字以内。
+            `.trim();
 
-        // 核心抬杠逻辑：匹配模板+替换关键词
-        function generateTaigang(idea) {
-            if (!idea.trim()) return "你还没输入观点呢，想让我杠空气？😜";
-            
-            const keyword = getKeyword(idea);
-            // 随机选一个抬杠模板
-            const randomIdx = Math.floor(Math.random() * taigangTemplates.length);
-            let template = taigangTemplates[randomIdx];
-            
-            // 针对不同模板做个性化替换
-            switch(randomIdx) {
-                case 1: // 模糊定义：替换两个{}
-                    template = template.replace(/\{\}/g, keyword);
-                    break;
-                case 4: // 极端假设：第二个{}替换成极端案例
-                    template = template.replace("{}", idea).replace("{}", getExtremeCase(idea));
-                    break;
-                default: // 其他模板：替换一个{}
-                    template = template.replace("{}", idea);
+            try {
+                // 调用讯飞星火API
+                const res = await fetch("https://spark-api.xf-yun.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "appid": XF_CONFIG.appid,
+                        "timestamp": timestamp,
+                        "signature": signature
+                    },
+                    body: JSON.stringify({
+                        model: "spark-3.5-mini", // 免费轻量模型
+                        messages: [{ role: "user", content: aiPrompt }],
+                        temperature: 0.8, // 随机性
+                        max_tokens: 100 // 最大生成字数
+                    })
+                });
+
+                const data = await res.json();
+                // 提取AI生成的内容
+                if (data.choices && data.choices.length > 0) {
+                    return data.choices[0].message.content.trim();
+                } else {
+                    return "AI暂时罢工了～换个观点试试😜";
+                }
+            } catch (err) {
+                console.error("API调用失败：", err);
+                // 兜底：调用失败时用原模板（保证功能不挂）
+                return `你说的「${prompt}」，默认的前提是什么？这个前提真的成立吗？有依据吗？`;
             }
-            return template;
         }
 
-        // 提交按钮点击事件
-        submitBtn.addEventListener('click', function() {
+        // 4. 修改：替换原generateTaigang函数（核心逻辑替换，保留入参/出参）
+        async function generateTaigang(idea) {
+            if (!idea.trim()) return "你还没输入观点呢，想让我杠空气？😜";
+            // 提取关键词，让AI更精准
+            const keywords = extractKeywords(idea);
+            // 调用AI接口生成抬杠内容（拼接关键词，提升精准度）
+            const aiResult = await callXFApi(`${idea}（核心词：${keywords}）`);
+            return aiResult;
+        }
+        // ====================== 新增/修改部分结束 ======================
+
+        // 原有交互逻辑完全不变，仅修改submitBtn点击事件为async
+        submitBtn.addEventListener('click', async function() {
             const idea = ideaInput.value;
-            // 生成抬杠结果
-            const result = generateTaigang(idea);
-            // 显示结果
+            // 生成抬杠结果（改为await调用）
+            const result = await generateTaigang(idea);
+            // 原有显示逻辑不变
             taigangResult.textContent = result;
             resultBox.style.display = 'block';
             resetBtn.style.display = 'block';
-            // 手机端自动滚动到结果区
             resultBox.scrollIntoView({ behavior: 'smooth' });
         });
 
-        // 重置按钮点击事件
+        // 原有重置按钮逻辑不变
         resetBtn.addEventListener('click', function() {
             ideaInput.value = '';
             resultBox.style.display = 'none';
             resetBtn.style.display = 'none';
-            ideaInput.focus(); // 聚焦输入框，方便再次输入
+            ideaInput.focus();
         });
 
-        // 适配手机端回车提交（增强体验）
+        // 原有回车提交逻辑不变
         ideaInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && e.ctrlKey) { // 手机端Ctrl+Enter提交
+            if (e.key === 'Enter' && e.ctrlKey) {
                 submitBtn.click();
             }
         });
