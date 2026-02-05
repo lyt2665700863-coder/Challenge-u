@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🤪 自动抬杠小游戏</title>
     <style>
-        /* 原有样式完全不变，复制你之前的样式即可 */
+        /* 原有样式完全保留 */
         * {
             margin: 0;
             padding: 0;
@@ -93,9 +93,9 @@
             background-color: #e64949;
         }
     </style>
-    <!-- 新增：引入jieba分词JS版（浏览器端CDN） -->
+    <!-- 引入jieba分词JS版（浏览器端CDN） -->
     <script src="https://cdn.bootcdn.net/ajax/libs/jieba/3.6.0/jieba.min.js"></script>
-    <!-- 新增：引入讯飞星火接口依赖（加密用） -->
+    <!-- 引入加密依赖（讯飞接口签名用） -->
     <script src="https://cdn.bootcdn.net/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
 </head>
 <body>
@@ -112,27 +112,28 @@
     </div>
 
     <script>
-        // 原有元素获取逻辑完全不变
+        // 原有元素获取逻辑不变
         const ideaInput = document.getElementById('ideaInput');
         const submitBtn = document.getElementById('submitBtn');
         const resultBox = document.getElementById('resultBox');
         const taigangResult = document.getElementById('taigangResult');
         const resetBtn = document.getElementById('resetBtn');
 
-        // ====================== 新增/修改部分开始 ======================
-        // 1. 配置讯飞星火API密钥（替换成你自己的！）
+        // ====================== 已替换为你的讯飞接口信息 ======================
+        // 1. 配置讯飞星火API密钥（已填入你的信息）
         const XF_CONFIG = {
-            appid: "84271b25",
-            apiKey: "107e95f305daec99a915f41bd14005ab",
-            apiSecret: "NThkNjA3YWI4NTc5MGYwM2U5OTY3Mzg1"
+            appid: "84271b25",          // 你的APPID
+            apiKey: "107e95f305daec99a915f41bd14005ab",  // 你的APIKey
+            apiSecret: "NThkNjA3YWI4NTc5MGYwM2U5OTY3Mzg1", // 你的APISecret
+            apiUrl: "https://maas-api.cn-huabei-1.xf-yun.com/v2" // 你的HTTP接口地址
         };
 
-        // 2. 新增：关键词提取函数（基于jieba分词）
+        // 2. 关键词提取函数（基于jieba分词）
         function extractKeywords(idea) {
             if (!idea.trim()) return "";
             // 加载jieba词典（浏览器端需手动加载）
             jieba.load(function() {
-                // 分词并过滤停用词（如“的、会、能”等无意义词）
+                // 分词并过滤停用词（无意义词）
                 const words = jieba.cut(idea.trim(), false);
                 const stopWords = ['的', '了', '是', '会', '能', '就', '都', '有', '在', '和', '也', '但', '如果'];
                 // 提取核心关键词（长度≥2，非停用词）
@@ -143,79 +144,95 @@
             return idea.trim().replace(/\s+/g, '').substring(0, 10);
         }
 
-        // 3. 新增：讯飞星火API调用函数（轻量版，仅生成抬杠内容）
+        // 3. 讯飞星火API调用函数（适配你的HTTP接口地址）
         async function callXFApi(prompt) {
-            // 生成请求签名（讯飞接口要求，固定逻辑）
-            const timestamp = new Date().getTime();
-            const signature = CryptoJS.HmacSHA256(`host:spark-api.xf-yun.com\ndate:${timestamp}\nGET /v1/chat/completions HTTP/1.1`, XF_CONFIG.apiSecret).toString(CryptoJS.enc.Base64);
-            
-            // 构造AI提示词（明确5个抬杠角度，让AI精准生成）
-            const aiPrompt = `
-                请针对观点「${prompt}」，从以下5个角度生成1句抬杠的话，要求口语化、贴合观点、不跑偏：
-                1. 质疑前提：质疑观点的默认前提是否成立；
-                2. 模糊定义：追问观点中关键词的定义；
-                3. 以偏概全：指出观点是否以个别案例推整体；
-                4. 因果混淆：质疑观点的因果关系是否成立；
-                5. 极端假设：将观点推到极端情况验证是否成立。
-                要求：只返回抬杠的话，不要多余解释，字数控制在50字以内。
-            `.trim();
-
             try {
-                // 调用讯飞星火API
-                const res = await fetch("https://maas-api.cn-huabei-1.xf-yun.com/v2", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "appid": XF_CONFIG.appid,
-                        "timestamp": timestamp,
-                        "signature": signature
+                // 生成请求时间戳
+                const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+                // 构造请求头（适配v2版本接口）
+                const headers = {
+                    "Content-Type": "application/json",
+                    "X-Appid": XF_CONFIG.appid,
+                    "X-Timestamp": timestamp
+                };
+
+                // 构造AI提示词（明确5个抬杠角度）
+                const aiPrompt = `
+                    请针对观点「${prompt}」，从以下5个角度生成1句抬杠的话，要求口语化、贴合观点、不跑偏：
+                    1. 质疑前提：质疑观点的默认前提是否成立；
+                    2. 模糊定义：追问观点中关键词的定义；
+                    3. 以偏概全：指出观点是否以个别案例推整体；
+                    4. 因果混淆：质疑观点的因果关系是否成立；
+                    5. 极端假设：将观点推到极端情况验证是否成立。
+                    要求：只返回抬杠的话，不要多余解释，字数控制在50字以内。
+                `.trim();
+
+                // 构造请求体（v2版本格式）
+                const requestBody = {
+                    header: {
+                        app_id: XF_CONFIG.appid,
+                        uid: "taigang_game_" + Math.random().toString(36).substr(2, 8) // 随机用户ID
                     },
-                    body: JSON.stringify({
-                        model: "spark-3.5-mini", // 免费轻量模型
-                        messages: [{ role: "user", content: aiPrompt }],
-                        temperature: 0.8, // 随机性
-                        max_tokens: 100 // 最大生成字数
-                    })
+                    parameter: {
+                        chat: {
+                            domain: "general",
+                            temperature: 0.8,
+                            max_tokens: 100
+                        }
+                    },
+                    payload: {
+                        message: {
+                            text: [
+                                { role: "user", content: aiPrompt }
+                            ]
+                        }
+                    }
+                };
+
+                // 调用讯飞星火V2版本HTTP接口
+                const res = await fetch(XF_CONFIG.apiUrl, {
+                    method: "POST",
+                    headers: headers,
+                    body: JSON.stringify(requestBody)
                 });
 
                 const data = await res.json();
                 // 提取AI生成的内容
-                if (data.choices && data.choices.length > 0) {
-                    return data.choices[0].message.content.trim();
+                if (data.payload && data.payload.choices && data.payload.choices.text) {
+                    return data.payload.choices.text[0].content.trim();
                 } else {
                     return "AI暂时罢工了～换个观点试试😜";
                 }
             } catch (err) {
                 console.error("API调用失败：", err);
-                // 兜底：调用失败时用原模板（保证功能不挂）
+                // 兜底：调用失败时用默认模板
                 return `你说的「${prompt}」，默认的前提是什么？这个前提真的成立吗？有依据吗？`;
             }
         }
 
-        // 4. 修改：替换原generateTaigang函数（核心逻辑替换，保留入参/出参）
+        // 4. 核心抬杠生成函数
         async function generateTaigang(idea) {
             if (!idea.trim()) return "你还没输入观点呢，想让我杠空气？😜";
             // 提取关键词，让AI更精准
             const keywords = extractKeywords(idea);
-            // 调用AI接口生成抬杠内容（拼接关键词，提升精准度）
+            // 调用AI接口生成抬杠内容
             const aiResult = await callXFApi(`${idea}（核心词：${keywords}）`);
             return aiResult;
         }
-        // ====================== 新增/修改部分结束 ======================
 
-        // 原有交互逻辑完全不变，仅修改submitBtn点击事件为async
+        // ====================== 原有交互逻辑（仅适配async） ======================
         submitBtn.addEventListener('click', async function() {
             const idea = ideaInput.value;
-            // 生成抬杠结果（改为await调用）
+            // 生成抬杠结果（异步调用）
             const result = await generateTaigang(idea);
-            // 原有显示逻辑不变
+            // 显示结果
             taigangResult.textContent = result;
             resultBox.style.display = 'block';
             resetBtn.style.display = 'block';
             resultBox.scrollIntoView({ behavior: 'smooth' });
         });
 
-        // 原有重置按钮逻辑不变
+        // 重置按钮逻辑
         resetBtn.addEventListener('click', function() {
             ideaInput.value = '';
             resultBox.style.display = 'none';
@@ -223,7 +240,7 @@
             ideaInput.focus();
         });
 
-        // 原有回车提交逻辑不变
+        // 回车提交逻辑
         ideaInput.addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && e.ctrlKey) {
                 submitBtn.click();
