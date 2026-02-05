@@ -139,52 +139,46 @@
         const resetBtn = document.getElementById('resetBtn');
         const btnText = document.getElementById('btnText');
 
-        // ====================== 讯飞接口配置（请确认以下2个参数） ======================
+        // ====================== 星火深度推理X1.5接口配置 ======================
+        // 请替换为你的APIpassword（从讯飞控制台获取：https://console.xfyun.cn/services/bmx1）
         const XF_CONFIG = {
-            appid: "84271b25",          // 你的APPID（无需修改）
-            apiKey: "107e95f305daec99a915f41bd14005ab",  // 你的APIKey（无需修改）
-            apiUrl: "https://maas-api.cn-huabei-1.xf-yun.com/v2", // 你的接口地址（无需修改）
-            modelId: "xop3qwen1b7" // 【必填】替换为你服务管控页面的模型ID！！！
+            apiPassword: "SOnIGTdiseRiCZcNJmmP:JvnSuHibtwphyDyowmJu", // 【必填】替换为你的APIpassword
+            apiUrl: "https://spark-api-open.xf-yun.com/v2/chat/completions", // X1.5正式版地址
+            modelId: "spark-x" // 固定值，无需修改
         };
 
-        // ====================== 修复核心问题：关键词提取（解决异步返回无效问题） ======================
-        // 预加载jieba词典（页面加载时完成，避免重复加载）
+        // ====================== 关键词提取函数（保留原有逻辑） ======================
+        // 预加载jieba词典
         let jiebaLoaded = false;
         jieba.load(function() {
             jiebaLoaded = true;
             console.log("jieba分词初始化完成");
         });
 
-        // 关键词提取函数（同步逻辑，确保返回值有效）
         function extractKeywords(idea) {
             if (!idea.trim()) return "";
             
-            // 如果jieba未加载完成，直接取前10个字兜底
             if (!jiebaLoaded) {
                 return idea.trim().replace(/\s+/g, '').substring(0, 10);
             }
 
             try {
-                // 分词并过滤停用词（无意义词）
                 const words = jieba.cut(idea.trim(), false);
                 const stopWords = ['的', '了', '是', '会', '能', '就', '都', '有', '在', '和', '也', '但', '如果'];
-                // 提取核心关键词（长度≥2，非停用词）
                 const keywords = words.filter(word => word.length >= 2 && !stopWords.includes(word));
                 return keywords.length > 0 ? keywords.join("、") : idea.trim().substring(0, 10);
             } catch (e) {
-                // 分词出错时兜底
                 return idea.trim().substring(0, 10);
             }
         }
 
-        // ====================== 按讯飞新文档重构API调用函数 ======================
+        // ====================== 适配星火X1.5接口调用函数 ======================
         async function callXFApi(prompt) {
-            // 禁用重复提交
             submitBtn.disabled = true;
             btnText.innerHTML = '<span class="loading"></span>杠精正在思考...';
 
             try {
-                // 构造AI提示词（明确5个抬杠角度，保证生成精准）
+                // 构造AI提示词（保留5个抬杠角度）
                 const aiPrompt = `
                     请针对观点「${prompt}」，从以下5个角度生成1句抬杠的话，要求口语化、贴合观点、不跑偏：
                     1. 质疑前提：质疑观点的默认前提是否成立；
@@ -195,46 +189,48 @@
                     要求：只返回抬杠的话，不要多余解释，字数控制在50字以内。
                 `.trim();
 
-                // 构造请求体（严格按讯飞OpenAI兼容格式）
+                // 构造请求体（严格按X1.5文档规范）
                 const requestBody = {
-                    model: XF_CONFIG.xop3qwen1b7, // 必填：模型ID（必须替换为你的！）
-                    messages: [{"role": "user", "content": aiPrompt}], // 必填：消息列表
-                    temperature: 0.8, // 随机性
-                    max_tokens: 100, // 最大生成字数
+                    model: XF_CONFIG.modelId, // 固定为spark-x
+                    user: "taigang_game_" + Math.random().toString(36).substr(2, 8), // 随机用户ID
+                    messages: [{"role": "user", "content": aiPrompt}], // 必填消息列表
+                    temperature: 1.2, // X1.5默认值1.2
+                    top_p: 0.95, // X1.5默认值
+                    top_k: 6, // X1.5默认值
+                    max_tokens: 65535, // X1.5最大token数
                     stream: false // 非流式响应
                 };
 
-                // 发起请求（严格按文档的HTTP规范）
-                const res = await fetch(`${XF_CONFIG.apiUrl}/chat/completions`, {
+                // 发起请求（按X1.5文档的鉴权和地址规范）
+                const res = await fetch(XF_CONFIG.apiUrl, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "Authorization": `Bearer ${XF_CONFIG.apiKey}`, // OpenAI标准认证方式
-                        "X-Appid": XF_CONFIG.appid // 讯飞扩展头（可选，增加兼容性）
+                        "Authorization": `Bearer ${XF_CONFIG.apiPassword}` // 仅保留Bearer + APIpassword
                     },
                     body: JSON.stringify(requestBody)
                 });
 
-                // 处理响应
                 if (!res.ok) {
                     throw new Error(`接口调用失败：${res.status} ${res.statusText}`);
                 }
 
                 const data = await res.json();
-                console.log("讯飞接口响应：", data); // 调试用，可删除
+                console.log("星火X1.5接口响应：", data);
 
-                // 按文档提取回复内容
-                if (data.choices && data.choices.length > 0) {
+                // 按X1.5文档解析响应
+                if (data.code === 0 && data.choices && data.choices.length > 0) {
                     return data.choices[0].message.content.trim();
                 } else {
-                    return "AI暂时罢工了～换个观点试试😜";
+                    // 处理接口返回错误信息
+                    const errMsg = data.message || "AI暂时罢工了～换个观点试试😜";
+                    return errMsg;
                 }
             } catch (err) {
                 console.error("API调用失败详情：", err);
-                // 兜底：调用失败时用默认模板
+                // 兜底逻辑
                 return `你说的「${prompt}」，默认的前提是什么？这个前提真的成立吗？有依据吗？`;
             } finally {
-                // 恢复按钮状态
                 submitBtn.disabled = false;
                 btnText.innerHTML = "开始抬杠！";
             }
@@ -243,14 +239,12 @@
         // ====================== 核心抬杠生成函数 ======================
         async function generateTaigang(idea) {
             if (!idea.trim()) return "你还没输入观点呢，想让我杠空气？😜";
-            // 提取关键词，让AI更精准
             const keywords = extractKeywords(idea);
-            // 调用AI接口生成抬杠内容（拼接关键词）
             const aiResult = await callXFApi(`${idea}（核心词：${keywords}）`);
             return aiResult;
         }
 
-        // ====================== 交互逻辑 ======================
+        // ====================== 交互逻辑（保留原有） ======================
         submitBtn.addEventListener('click', async function() {
             const idea = ideaInput.value.trim();
             if (!idea) {
@@ -258,17 +252,13 @@
                 return;
             }
 
-            // 生成抬杠结果
             const result = await generateTaigang(idea);
-            
-            // 显示结果
             taigangResult.textContent = result;
             resultBox.style.display = 'block';
             resetBtn.style.display = 'block';
             resultBox.scrollIntoView({ behavior: 'smooth' });
         });
 
-        // 重置按钮逻辑
         resetBtn.addEventListener('click', function() {
             ideaInput.value = '';
             resultBox.style.display = 'none';
@@ -276,7 +266,6 @@
             ideaInput.focus();
         });
 
-        // 回车提交逻辑
         ideaInput.addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && e.ctrlKey) {
                 e.preventDefault();
@@ -284,7 +273,6 @@
             }
         });
 
-        // 页面加载后聚焦输入框
         window.addEventListener('load', function() {
             ideaInput.focus();
         });
